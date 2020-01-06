@@ -1,2 +1,5 @@
-data
-feature
+data/
+features/
+models/
+runs/
+__pycache__/
