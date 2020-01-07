@@ -35,8 +35,8 @@ def build_label(label):
 
 def parse_fasta(filename):
     records = list(SeqIO.parse(filename, "fasta"))
+    shuffle(records)
     proteins = [record.seq for record in records]
-    shuffle(proteins)
     labels = [record.id.split('|')[1] for record in records]
 
     lens = [len(protein) for protein in proteins]
@@ -108,15 +108,16 @@ def build_cv_data(input_file, folds, verbose=False):
         print(f'valid_{folds-1}_shape: {valid_proteins.shape}, {valid_labels.shape}')
 
 if __name__ == '__main__':
-    if (len(sys.argv) < 3):
+    if (len(sys.argv) < 4):
         print('Please specific file name and features type')
+        print('$./build_features.py [file_name] [train/test] [n_folds]')
         exit(2)
 
     if sys.argv[2] == 'test':
         build_data(sys.argv[1])
 
     elif sys.argv[2] == 'train':
-        build_cv_data(sys.argv[1], 10)
+        build_cv_data(sys.argv[1], int(sys.argv[3]))
 
     else:
         print('features type: train / test')
