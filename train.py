@@ -7,6 +7,7 @@ import tensorflow as tf
 from keras.layers import Input, Dense, Flatten, Dropout, Conv1D, MaxPooling1D, GlobalAveragePooling1D, concatenate, add
 from keras import Model
 from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping
+from keras.optimizers import Adam
 # import tensorflow.keras.backend as K
 
 from sklearn.metrics import matthews_corrcoef
@@ -60,7 +61,7 @@ def build_model(input_shape):
 
     return model
 
-def train(model_name, train_x, train_y, valid_x, valid_y):
+def train(model_name, train_x, train_y, valid_x, valid_y, **kwargs):
 
     if not os.path.exists('models'): os.makedirs('models')
     if not os.path.exists('runs'): os.makedirs('runs')
@@ -71,7 +72,8 @@ def train(model_name, train_x, train_y, valid_x, valid_y):
 
     model = build_model((60, 20))
 
-    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    optimizer = Adam(lr=1e-3)
+    model.compile(optimizer=optimizer, loss='sparse_categorical_crossentropy', metrics=['accuracy'])
 
     model.fit(train_x, train_y,
         validation_data = (valid_x, valid_y),\
