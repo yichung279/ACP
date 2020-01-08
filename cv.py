@@ -28,7 +28,7 @@ if '__main__' == __name__:
     mccs = np.array(mccs)
     best_model_index = np.argmax(mccs)
 
-    test_x, test_y = np.load(f'features/teste_x.npy'), np.load(f'features/test_y.npy')
+    test_x, test_y = np.load(f'features/test_x.npy'), np.load(f'features/test_y.npy')
     model = load_model(f'models/{model_name_base}_{best_model_index}.h5')
     pred_y = model.predict(test_x)
 
