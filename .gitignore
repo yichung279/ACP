@@ -3,3 +3,4 @@ features/
 models/
 runs/
 __pycache__/
+*.txt
