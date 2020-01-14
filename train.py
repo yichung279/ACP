@@ -4,64 +4,87 @@ import os
 from sys import argv
 import tensorflow as tf
 
-from keras.layers import Input, Dense, Flatten, Dropout, Conv1D, MaxPooling1D, GlobalAveragePooling1D, concatenate, add
 from keras import Model
+from keras.layers import Input, Dense, Flatten, Dropout, BatchNormalization
+from keras.layers import Conv1D, MaxPooling1D, GlobalAveragePooling1D, AveragePooling1D
+from keras.layers import concatenate, add, multiply, Reshape
 from keras.callbacks import ModelCheckpoint, TensorBoard, EarlyStopping
 from keras.optimizers import Adam
 # import tensorflow.keras.backend as K
 
 from sklearn.metrics import matthews_corrcoef
 
-def inception_res_bolck(inputs, filter_1, filter_5_r, filter_5, filter_9_r, filter_9, filter_p, res=False):
+def conv_bn(x, fliters, kernel_size, padding='same', activation='relu'):
 
-    block_1 = Conv1D(filter_1, 1, padding='same', activation='relu')(inputs)
+    x = Conv1D(fliters, kernel_size, padding=padding, activation=activation)(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.4)(x)
 
-    block_5 = Conv1D(filter_5_r, 1, padding='same', activation='relu')(inputs)
-    block_5 = Conv1D(filter_5, 5, padding='same', activation='relu')(block_5)
+    return x
 
-    block_9 = Conv1D(filter_9_r, 1, padding='same', activation='relu')(inputs)
-    block_9 = Conv1D(filter_9, 9, padding='same', activation='relu')(block_9)
+def se_layer(x, ratio):
 
-    block_p = MaxPooling1D(strides=1, padding='same')(inputs)
-    block_p = Conv1D(filter_p, 1, padding='same', activation='relu')(inputs)
+    out_dim = int(x.shape[-1])
+
+    squeeze = GlobalAveragePooling1D()(x)
+
+    excitation = Dense(units=out_dim // ratio, activation='relu')(squeeze)
+    excitation = Dense(units=out_dim, activation='sigmoid')(excitation)
+    excitation = Reshape((1, out_dim))(excitation)
+
+    return  multiply([x, excitation])
+
+def inception_se_res_bolck(x, filter_1, filter_5_r, filter_5, filter_9_r, filter_9, filter_p, se_ratio=None, res=False):
+
+    block_1 = conv_bn(x, filter_1, 1)
+
+    block_5 = conv_bn(x, filter_5_r, 1)
+    block_5 = conv_bn(block_5, filter_5, 5)
+
+    block_9 = conv_bn(x, filter_9_r, 1)
+    block_9 = conv_bn(block_9, filter_9, 9)
+
+    block_p = MaxPooling1D(strides=1, padding='same')(x)
+    block_p = conv_bn(x, filter_p, 1)
 
     block_inception = concatenate([block_1, block_5, block_9, block_p])
+
+    if se_ratio:
+        block_inception = se_layer(block_inception, se_ratio)
 
     if not res:
         return block_inception
 
-    model = Conv1D(int(inputs.shape[-1]), 1, padding='same', activation='relu')(block_inception)
-    model = add([inputs, model])
+    model = conv_bn(block_inception, int(x.shape[-1]), 1)
+    model = add([x, model])
 
     return model
 
-def build_model(input_shape):
+def build_model(input_shape, kernel_size, layer_count, filter_base, filter_growth):
 
     inputs = Input(shape=input_shape)
 
-    model = inception_res_bolck(inputs, 64, 64, 80, 16, 48, 64)
-    model = inception_res_bolck(model, 128, 128, 192, 32, 96, 64)
-    model = MaxPooling1D(2)(model)
+    model = conv_bn(inputs, filter_base, kernel_size)
+    model = se_layer(model, 8)
 
-    model = inception_res_bolck(inputs, 192, 96, 208, 16, 48, 64)
-    model = inception_res_bolck(model, 128, 112, 224, 24, 64, 64)
-    model = MaxPooling1D(2)(model)
+    for i in range(layer_count):
+        model = conv_bn(model, filter_base + filter_growth, kernel_size)
+    model = AveragePooling1D(2)(model)
 
-    model = inception_res_bolck(model, 128, 112, 224, 24, 64, 64)
-    model = inception_res_bolck(model, 128, 80, 160, 64, 128, 64)
+    for i in range(layer_count):
+        model = conv_bn(model, filter_base + filter_growth * 2, kernel_size)
+    model = AveragePooling1D(2)(model)
+
+    for i in range(layer_count):
+        model = conv_bn(model, filter_base + filter_growth *3, kernel_size)
+    model = AveragePooling1D(2)(model)
+
     model = GlobalAveragePooling1D()(model)
-
-    model = Dropout(0.4)(model)
-    model = Dense(512, activation='relu')(model)
     model = Dense(2, activation='softmax')(model)
 
-    model = Model(inputs, model)
+    return Model(inputs, model)
 
-    model.summary()
-
-    return model
-
-def train(model_name, train_x, train_y, valid_x, valid_y, **kwargs):
+def train(model_name, train_x, train_y, valid_x, valid_y, kernel_size, layer_count, filter_base, filter_growth):
 
     if not os.path.exists('models'): os.makedirs('models')
     if not os.path.exists('runs'): os.makedirs('runs')
@@ -70,9 +93,10 @@ def train(model_name, train_x, train_y, valid_x, valid_y, **kwargs):
     tensorboard = TensorBoard(log_dir=f'runs/{model_name}' , histogram_freq=0, write_graph=True, write_images=False)
     early_stp = EarlyStopping(monitor="loss", patience=10, verbose=1, mode="auto")
 
-    model = build_model((60, 20))
+    model = build_model((64, 20), kernel_size, layer_count, filter_base, filter_growth)
+    model.summary()
 
-    optimizer = Adam(lr=1e-3)
+    optimizer = Adam(lr=1e-4)
     model.compile(optimizer=optimizer, loss='sparse_categorical_crossentropy', metrics=['accuracy'])
 
     model.fit(train_x, train_y,
@@ -85,7 +109,7 @@ def train(model_name, train_x, train_y, valid_x, valid_y, **kwargs):
 
     pred_y = model.predict(valid_x)
 
-    return matthews_corrcoef(valid_y, np.argmax(pred_y, axis=1))
+    return matthews_corrcoef(valid_y, np.argmax(pred_y, axis=1)), model.count_params()
 
 if '__main__' == __name__:
     model_name = argv[1]
@@ -93,6 +117,13 @@ if '__main__' == __name__:
     train_x, train_y = np.load('features/train_x_0.npy'), np.load('features/train_y_0.npy')
     valid_x, valid_y = np.load('features/valid_x_0.npy'), np.load('features/valid_y_0.npy')
 
-    mcc = train(model_name, train_x, train_y, valid_x, valid_y)
+    kernel_size=3
+    layer_count=1
+    filter_base=24
+    filter_growth=8
 
-    print(mcc)
+    mcc, parameter_count = train(model_name, train_x, train_y,\
+                                 valid_x, valid_y,\
+                                 kernel_size, layer_count, filter_base, filter_growth)
+
+    print(mcc, parameter_count)
