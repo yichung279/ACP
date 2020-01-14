@@ -6,7 +6,7 @@ from Bio import SeqIO
 import numpy as np
 
 amino_acid_list = 'VLIMFWYGAPSTCHRKQEND'
-sequence_length = 60
+sequence_length = 64
 
 def build_protein(protein):
     features = []
